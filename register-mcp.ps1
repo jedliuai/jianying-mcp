@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $projectDir = $PSScriptRoot
 $pythonExe = Join-Path $projectDir '.venv/Scripts/python.exe'
 $entryFile = Join-Path $projectDir 'run_mcp.py'

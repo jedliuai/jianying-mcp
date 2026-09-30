@@ -3,13 +3,22 @@ import os
 from mcp.server.fastmcp import FastMCP
 
 from .core import Bridge
+from .sound_design import sound_design_guide
 
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 mcp = FastMCP("jianying-local", instructions=(
-    "通过本地草稿文件编辑剪映，保留多轨工程。先 list/inspect，明确本地音效和时间点，"
+    "通过本地草稿文件编辑剪映，保留可编辑工程。音效默认同轨多片段，合并已有音效需明确轨道 ID。"
+    "编排前可读取 get_jianying_sound_design_guide 获取已实践的密度、音量、素材截取与时间锚点经验。"
+    "先 list/inspect，明确本地音效和时间点，"
     "再 prepare/build/verify。publish 只能在用户保存并正常退出剪映后调用。"
     "不要自动关闭剪映或覆盖原工程。用户授权后可按字幕安排音效，并说明位置来自字幕推断；"
     "精确点击同步和最终效果需播放检查。结构校验不能替代打开播放保存验收。"))
+
+
+@mcp.tool()
+def get_jianying_sound_design_guide() -> dict:
+    """读取口播录屏音效经验、单轨规则和四类剪映缓存音效预设；按需加载，不读取草稿或修改任何文件。"""
+    return sound_design_guide()
 
 
 @mcp.tool()

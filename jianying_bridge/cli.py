@@ -12,6 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description="剪映本地 CLI：保留轨道，复制工程，添加音效")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor")
+    commands.add_parser("guide")
     listing = commands.add_parser("list")
     listing.add_argument("--limit", type=int, default=20)
     inspect = commands.add_parser("inspect")
@@ -36,6 +37,10 @@ def main():
         if args.command == "mcp":
             from .server import main as run_server
             run_server()
+            return
+        if args.command == "guide":
+            from .sound_design import sound_design_guide
+            print(json_text(sound_design_guide()))
             return
         bridge = Bridge()
         if args.command == "doctor":

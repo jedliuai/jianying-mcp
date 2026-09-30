@@ -1,0 +1,26 @@
+{
+  "name": "jianying-mcp",
+  "version": "0.2.0",
+  "description": "剪映本地 MCP 与音效编排经验：同轨多片段、缓存素材、工程副本和可继续调整的时间线。",
+  "author": {
+    "name": "jedliuai"
+  },
+  "homepage": "https://github.com/jedliuai/jianying-mcp",
+  "repository": "https://github.com/jedliuai/jianying-mcp",
+  "keywords": ["jianying", "mcp", "sound-effects", "editable-draft"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "剪映音效助手",
+    "shortDescription": "用剪映缓存音效补充演示节奏，同轨整理并保留片段调整能力",
+    "longDescription": "连接 Windows 本机剪映草稿，按字幕、操作反馈和章节变化安排音效，合并指定音效轨道，并保留视频、字幕及已有声音调整。内含经过用户试听反馈整理的音效密度、音量、素材截取和再次编辑经验。",
+    "developerName": "jedliuai",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/jedliuai/jianying-mcp",
+    "defaultPrompt": [
+      "给这个剪映工程适量添加音效，放在一条轨道上，保留已有调整。",
+      "把这个剪映工程中明确选中的音效轨道合并成一条，每个片段继续可编辑。"
+    ]
+  }
+}

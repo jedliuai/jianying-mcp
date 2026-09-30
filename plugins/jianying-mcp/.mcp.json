@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "jianying-local": {
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference = 'Stop'; $runtimePath = Join-Path $env:LOCALAPPDATA 'jianying-mcp/runtime.json'; if (-not (Test-Path -LiteralPath $runtimePath)) { throw 'Run install-plugin.ps1 from the jianying-mcp repository first.' }; $runtime = Get-Content -LiteralPath $runtimePath -Raw -Encoding UTF8 | ConvertFrom-Json; if (-not (Test-Path -LiteralPath $runtime.python) -or -not (Test-Path -LiteralPath $runtime.entry) -or -not (Test-Path -LiteralPath $runtime.config)) { throw 'Jianying runtime moved or is missing. Run install-plugin.ps1 again.' }; $env:JIANYING_BRIDGE_CONFIG = $runtime.config; & $runtime.python $runtime.entry; exit $LASTEXITCODE"
+      ],
+      "env": {
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1"
+      }
+    }
+  }
+}

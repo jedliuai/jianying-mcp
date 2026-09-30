@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$InstallDir,
     [string]$DraftRoot,
     [string]$UserData

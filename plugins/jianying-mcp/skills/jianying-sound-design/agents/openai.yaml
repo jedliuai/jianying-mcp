@@ -1,0 +1,6 @@
+interface:
+  display_name: "剪映音效编排"
+  short_description: "为剪映工程安排音效、合并音效轨道，并保留字幕与逐片段编辑能力"
+  default_prompt: "使用 $jianying-sound-design 给当前剪映工程补充合适的音效，放在一条轨道上并保留已有调整。"
+policy:
+  allow_implicit_invocation: true

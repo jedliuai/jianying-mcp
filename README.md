@@ -4,6 +4,8 @@ Windows 剪映专业版的本地 **MCP + CLI** 接入：读取已有工程，复
 
 可以使用自己的音频，也可以按名称查找剪映已下载到本机的内置音效。默认把音效作为多个可编辑片段放在同一条轨道，之后可以继续在剪映里拖动、裁剪、分别调音量；也支持按明确指定的 ID 合并已有音频轨道。整个流程通过草稿文件完成，无需截图、鼠标控制或 Computer Use。
 
+仓库还提供 **「剪映音效助手」Codex 插件**，把 MCP 与实际剪辑经验一起安装。插件会指导助手选择音效、安排字幕时间锚点、控制密度和音量、保留已有调整，并把音效整理到同一条轨道。经验也可单独通过 MCP 或 CLI 按需读取。
+
 ## 兼容范围
 
 - 本机实测：Windows 剪映 `11.5.0.14471`、64 位 Python `3.13`。
@@ -30,6 +32,39 @@ cd jianying-mcp
 路径写入忽略的 `local.config.json`。也可以设置 `JIANYING_BRIDGE_CONFIG` 指向另一份配置，或用 `JIANYING_DRAFT_ROOT`、`JIANYING_INSTALL_DIR` 覆盖路径。
 
 ## 接入 Codex
+
+推荐安装完整插件。已有本地配置时：
+
+```powershell
+.\install-plugin.ps1
+```
+
+新电脑可以一步设置运行环境并安装插件：
+
+```powershell
+.\install-plugin.ps1 -InstallDir 'D:\Program Files\JianyingPro\具体版本目录' -DraftRoot 'D:\剪映草稿'
+```
+
+脚本通过 Codex CLI 登记 `jianying-local-plugins` 插件源并安装 `jianying-mcp`，验证安装副本的 MCP 握手、工程列表和音效指南，然后移除指向同一运行环境的旧独立 `jianying-local` 配置，避免重复工具。配置修改前自动备份；需要并存时使用 `-KeepStandaloneMcp`。安装不修改剪映工程。
+
+重启 Codex、开新聊天后可使用「剪映音效助手」和 `jianying-sound-design` 技能。可直接说：
+
+> 使用剪映音效助手，给这个工程适量补充音效，放在一条轨道上，保留已经调整过的位置和音量。
+
+插件目录在 `plugins/jianying-mcp/`，技能负责编辑流程，`get_jianying_sound_design_guide` 按需提供四类预设与经验。口播录屏可先参考每分钟 2～4 处提示；这只是起点，素材音量、声音密度和时间点都应按视频内容与用户反馈调整。
+
+安装脚本把运行指针写到本机 `%LOCALAPPDATA%/jianying-mcp/runtime.json`，插件据此使用 Python、入口与配置的绝对路径，不依赖聊天工作目录或插件缓存目录。移动仓库后重跑安装脚本。Python 环境和真实素材保留在本机，插件安装只复制工具元数据与技能文件。
+
+这是 Windows 本地 Codex 插件。插件使用[官方支持的兼容清单格式](https://developers.openai.com/plugins/build/plugins)，不代表已提交到官方公共插件目录；网页版 ChatGPT 也不能直接启动本机 stdio 进程。
+
+检查安装或卸载：
+
+```powershell
+codex plugin list --marketplace jianying-local-plugins --json
+codex plugin remove jianying-mcp@jianying-local-plugins
+```
+
+只需要独立 MCP、不使用插件经验指导时，仍可用原入口：
 
 ```powershell
 .\register-mcp.ps1
@@ -69,6 +104,7 @@ cd jianying-mcp
 
 ```powershell
 .\.venv\Scripts\python.exe -m jianying_bridge.cli doctor
+.\.venv\Scripts\python.exe -m jianying_bridge.cli guide
 .\.venv\Scripts\python.exe -m jianying_bridge.cli list --limit 10
 .\.venv\Scripts\python.exe -m jianying_bridge.cli inspect '演示工程' --segments --limit 40 --offset 0
 .\.venv\Scripts\python.exe -m jianying_bridge.cli cached-audio --query '提示'
@@ -103,6 +139,7 @@ cd jianying-mcp
 
 | 工具 | 用途 |
 | --- | --- |
+| `get_jianying_sound_design_guide` | 按需读取音效密度、音量、截取、时间锚点及四类缓存素材预设 |
 | `jianying_doctor` | 环境和剪映运行状态 |
 | `list_jianying_drafts` | 最近草稿，紧凑列表 |
 | `inspect_jianying_draft` | 轨道、时长、分页字幕和片段 |
@@ -138,10 +175,13 @@ MCP 使用[官方 Python SDK 的 v1 系列](https://github.com/modelcontextproto
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe tools/smoke_mcp.py
+.\.venv\Scripts\python.exe tools/smoke_mcp.py --plugin '本机已安装的插件目录'
 .\.venv\Scripts\python.exe tools/probe_codec.py '演示工程'
 .\.venv\Scripts\python.exe tools/smoke_native.py '演示工程'
 ```
 
 自动测试使用临时目录和合成素材，覆盖单轨多片段、指定轨道合并与旧音效参数保留、重叠与静音冲突拦截、未知字段保留、多时间线、源文件变化、素材缺失、保存后再次编辑、工程路径迁移及越界拦截、索引备份、运行状态拦截、资源缓存解析与签名 URL 隔离。GitHub Actions 在 Windows 上运行这些测试，不读取真实剪映工程。
+
+插件测试另覆盖 Windows PowerShell 5.1 脚本解析、不同工作目录与中文配置路径下的真实 stdio 握手、经验指南调用和启动失败提示。缺少或移动运行环境时，会直接提示重跑安装脚本，不向 MCP stdout 写入普通日志。
 
 `smoke_native.py` 生成未发布的测试副本，其中包含合成测试音效；不要把它当作正式成品。

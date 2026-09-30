@@ -1,0 +1,20 @@
+{
+  "name": "jianying-local-plugins",
+  "interface": {
+    "displayName": "剪映本地工具"
+  },
+  "plugins": [
+    {
+      "name": "jianying-mcp",
+      "source": {
+        "source": "local",
+        "path": "./plugins/jianying-mcp"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

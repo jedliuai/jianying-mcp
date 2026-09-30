@@ -1,0 +1,139 @@
+# jianying-mcp
+
+Windows 剪映专业版的本地 **MCP + CLI** 接入：读取已有工程，复制工程，追加可编辑音效轨道，再登记到剪映首页。保留原轨道、字幕、关键帧、画布配置和未知原生字段。
+
+可以使用自己的音频，也可以按名称查找剪映已下载到本机的内置音效。每个新增音效单独一条轨道，之后可以继续在剪映里拖动、裁剪、调音量。整个流程通过草稿文件完成，无需截图、鼠标控制或 Computer Use。
+
+## 兼容范围
+
+- 本机实测：Windows 剪映 `11.5.0.14471`、64 位 Python `3.13`。
+- 新版加密草稿通过隔离进程调用用户自己安装的 `videoeditor.dll`；项目不分发剪映程序或 DLL。
+- 支持 `draft_content.json` / `draft_info.json`，并识别 `Timelines/project.json` 指定的主时间线。
+- 内置音效查询只读取本机已缓存资源，不联网下载，不调整会员状态；未缓存音效需要先在剪映里下载。
+- 当前是工程副本编辑流程。剪映退出后登记副本、重新打开，时间线才会显示新增音效。
+- 当前不提供原生自动导出，也不能让网页版 ChatGPT 直接启动本机 stdio 进程。适用于 Codex 等支持本地 stdio MCP 的客户端。
+
+2026-09-30 的真实多时间线工程测试保留了 337 个原片段和 679 项素材数据，新增音效副本通过加密往返、文件路径、轨道保留及首页登记检查。原生播放、保存重开仍需用户在剪映内验收；这些结果不代表所有版本或所有复杂工程均已兼容。
+
+## 安装
+
+需要 Windows、64 位 Python 3.11+、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和自己安装的剪映专业版。
+
+```powershell
+git clone https://github.com/jedliuai/jianying-mcp.git
+cd jianying-mcp
+.\setup.ps1 -InstallDir 'D:\Program Files\JianyingPro\具体版本目录' -DraftRoot 'D:\剪映草稿'
+```
+
+`InstallDir` 指向含 `videoeditor.dll` 的版本目录；`DraftRoot` 是剪映设置里的草稿位置。依赖由 `uv.lock` 固定，其中 pyJianYingDraft 锁定到指定 fork 的 Git 提交，不能随意换成同名 PyPI 包。
+
+路径写入忽略的 `local.config.json`。也可以设置 `JIANYING_BRIDGE_CONFIG` 指向另一份配置，或用 `JIANYING_DRAFT_ROOT`、`JIANYING_INSTALL_DIR` 覆盖路径。
+
+## 接入 Codex
+
+```powershell
+.\register-mcp.ps1
+```
+
+脚本通过 `codex mcp add` 注册 `jianying-local`，使用绝对路径入口，不依赖客户端工作目录。重启 Codex 后加载 MCP；CLI 可以立即使用。配置前会在忽略的 `work/config-backups/` 中备份 Codex 配置。
+
+其他本地 MCP 客户端使用以下结构，并替换路径：
+
+```json
+{
+  "mcpServers": {
+    "jianying-local": {
+      "command": "D:\\项目\\jianying-mcp\\.venv\\Scripts\\python.exe",
+      "args": ["D:\\项目\\jianying-mcp\\run_mcp.py"],
+      "env": {"PYTHONIOENCODING": "utf-8"}
+    }
+  }
+}
+```
+
+撤销 Codex 配置：`codex mcp remove jianying-local`。
+
+## 在聊天里使用
+
+> 列出最近的剪映工程，读取“演示工程”的字幕时间点。搜索剪映里已经下载的转场音和提示音。
+
+> 给“演示工程”生成一个“演示工程-音效版”副本，在模块切换和完成操作的位置加少量低音量音效，保留原轨道。
+
+助手准备计划，生成并校验副本。用户保存原工程并正常退出剪映后，助手登记副本。启动剪映，从首页打开副本，检查画面、声音、素材和轨道，保存并重开确认。
+
+音效时间点可以由用户指定，也可以在用户授权后根据字幕内容安排。字幕标注的操作时间不等于逐帧确认的鼠标点击时间，精确同步需要播放检查。
+
+## CLI
+
+在项目目录打开 PowerShell：
+
+```powershell
+.\.venv\Scripts\python.exe -m jianying_bridge.cli doctor
+.\.venv\Scripts\python.exe -m jianying_bridge.cli list --limit 10
+.\.venv\Scripts\python.exe -m jianying_bridge.cli inspect '演示工程' --segments --limit 40 --offset 0
+.\.venv\Scripts\python.exe -m jianying_bridge.cli cached-audio --query '提示'
+.\.venv\Scripts\python.exe -m jianying_bridge.cli audio 'D:\音效'
+```
+
+复制 `examples/sound-effects.plan.json`，替换工程名、本地音频和时间，保存为自己的计划文件：
+
+```powershell
+.\.venv\Scripts\python.exe -m jianying_bridge.cli prepare '自己的计划.json'
+.\.venv\Scripts\python.exe -m jianying_bridge.cli build '<plan_id>'
+.\.venv\Scripts\python.exe -m jianying_bridge.cli verify '<build_id>'
+```
+
+`build` 返回工作目录中的工程副本，尚未进入剪映首页。保存当前剪映工程并正常退出后：
+
+```powershell
+.\.venv\Scripts\python.exe -m jianying_bridge.cli publish '<build_id>'
+```
+
+`publish` 仅表示本机首页登记：复制已验证工程，追加首页记录，备份原索引。同名草稿、运行中的剪映、索引变化或校验失败都会阻止操作。
+
+时间单位为秒。`volume=1` 为 100%，支持 0～2。默认使用整个音效文件，也可以用 `source_start_seconds` 和 `duration_seconds` 选择片段。音效不能延长原工程，超出结尾会报错。
+
+## MCP 工具
+
+| 工具 | 用途 |
+| --- | --- |
+| `jianying_doctor` | 环境和剪映运行状态 |
+| `list_jianying_drafts` | 最近草稿，紧凑列表 |
+| `inspect_jianying_draft` | 轨道、时长、分页字幕和片段 |
+| `list_local_sound_effects` | 用户指定目录的本地音频 |
+| `find_jianying_cached_sound_effects` | 按名称查询已缓存的内置音效 |
+| `prepare_sound_effects` | 检查时间、音量、淡入淡出，保存计划 |
+| `build_sound_effects_copy` | 复制工程，追加独立音效轨道 |
+| `verify_jianying_build` | 验证原轨道、素材、主时间线镜像和音频文件 |
+| `publish_jianying_build` | 剪映退出后登记副本并备份索引 |
+
+## 工程保留与数据边界
+
+库只生成新增音频数据，再合并进原始 JSON 副本；不把整个原工程送回模板序列化器。逐项检查原轨道顺序、片段、素材、字幕原始字符串、画布配置及未知字段。只有副本身份、文件路径和新增音效相关数据发生变化。
+
+新版主时间线、根草稿镜像和对应备份保持同步，其他时间线保留。新增音效复制进副本，每次构建采用独立素材目录，继续追加音效也不会覆盖上一轮文件。
+
+计划绑定源草稿和音效文件哈希，文件更新会使旧计划失效。本地音视频缺失、草稿中的符号链接或目录联接会阻止交付。项目不会自动终止剪映。
+
+本机草稿、录屏、音频、资源数据库、计划、基线快照、索引备份及配置备份都应保留在忽略的 `work/` 或剪映数据目录中。内置资源查询不返回缓存中的签名 URL，不读取账号凭据，也不向 GitHub 上传缓存素材。会员状态不意味着素材可以随代码仓库再分发。
+
+## 来源
+
+Windows 方案使用 [aoguai/pyJianYingDraft](https://github.com/aoguai/pyJianYingDraft) 的音频构建、codec 和首页登记字段。codec 方案来源于 [jy-draftc](https://github.com/wenshui330/jy-draftc)，只调用本机已安装的剪映 DLL。本机 11.5 的实测超出上游部分声明验证范围，应独立看待。
+
+[Jianying Headless](https://github.com/mcncarl/jianying-headless) 及其配套 yichen Skill 是最初调研方向。其公开实现要求特定 Apple Silicon Mac 环境，没有作为本项目的 Windows 依赖，也没有复制其实现。
+
+MCP 使用[官方 Python SDK 的 v1 系列](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x)。第三方许可证与版本见 `THIRD_PARTY.md`。
+
+## 验证
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe tools/smoke_mcp.py
+.\.venv\Scripts\python.exe tools/probe_codec.py '演示工程'
+.\.venv\Scripts\python.exe tools/smoke_native.py '演示工程'
+```
+
+自动测试使用临时目录和合成素材，覆盖未知字段保留、多时间线、重叠音效、源文件变化、素材缺失、重复编辑、索引备份、运行状态拦截、资源缓存解析与签名 URL 隔离。GitHub Actions 在 Windows 上运行这些测试，不读取真实剪映工程。
+
+`smoke_native.py` 生成未发布的测试副本，其中包含合成测试音效；不要把它当作正式成品。

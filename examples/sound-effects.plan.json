@@ -1,0 +1,16 @@
+{
+  "source_name": "替换为剪映草稿文件夹名称",
+  "new_name": "原工程-音效版",
+  "effects": [
+    {
+      "path": "D:\\音效\\click.wav",
+      "start_seconds": 3.2,
+      "duration_seconds": 0.35,
+      "source_start_seconds": 0,
+      "volume": 0.6,
+      "fade_in_seconds": 0.02,
+      "fade_out_seconds": 0.05,
+      "label": "按钮点击"
+    }
+  ]
+}

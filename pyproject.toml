@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jianying-local-bridge"
+version = "0.1.0"
+description = "Local CLI and MCP bridge for editable Jianying sound-effect tracks"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.20,<2",
+  "pyjianyingdraft @ git+https://github.com/aoguai/pyJianYingDraft.git@2b6ed48b0f096e5a76a5b8a68a6d7d233defb463"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9,<10"]
+
+[project.scripts]
+jianying-bridge = "jianying_bridge.cli:main"
+jianying-bridge-mcp = "jianying_bridge.server:main"
+
+[tool.setuptools.packages.find]
+include = ["jianying_bridge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

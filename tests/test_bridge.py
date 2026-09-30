@@ -191,6 +191,52 @@ def test_editing_previously_generated_copy_never_overwrites_existing_sound(fixtu
     assert second_content["tracks"][:4] == first_content["tracks"]
 
 
+def test_reediting_native_saved_copy_resolves_placeholder_and_relative_media(fixture):
+    bridge, _, _, audio = fixture
+    first = bridge.build(prepare(fixture)["plan_id"])
+    publication = bridge.publish(first["build_id"])
+    source = Path(publication["draft_path"])
+    content, _ = bridge.read(source / "draft_content.json")
+    previous_sound = content["materials"]["audios"][0]
+    relative_audio = Path(previous_sound["path"]).relative_to(source).as_posix()
+    previous_sound["path"] = "##_draftpath_placeholder_NATIVE-DRAFT-ID_##/" + relative_audio
+    content["materials"]["videos"][0]["path"] = "./Resources/clip.mp4"
+    # A subtitle string that resembles a path must still remain byte-for-byte intact.
+    content["materials"]["texts"][0]["content"] = '{ "text": "./Resources/clip.mp4", "styles": [] }'
+    bridge.write(source / "draft_content.json", content, False)
+    (source / "draft_content.json.bak").write_bytes((source / "draft_content.json").read_bytes())
+    metadata, _ = bridge.read(source / "draft_meta_info.json")
+    for group in metadata["draft_materials"]:
+        for material in group.get("value", []):
+            if material.get("file_Path", "").endswith(Path(relative_audio).name):
+                material["file_Path"] = "./" + relative_audio
+    bridge.write(source / "draft_meta_info.json", metadata, False)
+    before = bridge.fingerprints(source)
+    plan = bridge.prepare(source.name, "保存后再加音效", [{"path": str(audio), "start_seconds": 4}])
+    second = bridge.build(plan["plan_id"])
+    new_publication = bridge.publish(second["build_id"])
+    target = Path(new_publication["draft_path"])
+    edited, _ = bridge.read(target / "draft_content.json")
+    assert edited["tracks"][:len(content["tracks"])] == content["tracks"]
+    assert edited["materials"]["texts"] == content["materials"]["texts"]
+    assert edited["materials"]["audios"][0]["path"] == (target / relative_audio).as_posix()
+    assert edited["materials"]["videos"][0]["path"] == (target / "Resources/clip.mp4").as_posix()
+    assert digest((target / relative_audio).read_bytes()) == digest((source / relative_audio).read_bytes())
+    new_metadata, _ = bridge.read(target / "draft_meta_info.json")
+    paths = [m["file_Path"] for g in new_metadata["draft_materials"] for m in g.get("value", []) if "file_Path" in m]
+    assert (target / relative_audio).as_posix() in paths
+    assert bridge.fingerprints(source) == before
+
+
+@pytest.mark.parametrize("value", [
+    "##_draftpath_placeholder_NATIVE-DRAFT-ID_##/../outside.wav",
+    "./../outside.wav",
+])
+def test_project_local_paths_cannot_escape_draft(value, tmp_path):
+    with pytest.raises(BridgeError, match="越过草稿目录"):
+        remap_paths({"path": value}, tmp_path / "source", tmp_path / "target")
+
+
 def test_multitimeline_updates_main_mirrors_and_preserves_other_timelines(fixture):
     bridge, source, original, _ = fixture
     main = source / "Timelines/TIMELINE-1"

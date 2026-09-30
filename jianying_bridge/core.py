@@ -23,6 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".wma", ".aiff"}
 FILE_KEYS = {"path", "file_Path", "font_path", "resource_path", "draft_fold_path",
              "draft_root_path", "draft_json_file", "draft_cover", "cover_path"}
+PROJECT_PATH = re.compile(r"^##_draftpath_placeholder_[A-Za-z0-9-]+_##(?:/(.*))?$")
 
 
 class BridgeError(ValueError):
@@ -72,7 +73,13 @@ def remap_paths(value, old: Path, new: Path):
             for key, child in item.items():
                 if key in FILE_KEYS and isinstance(child, str):
                     normalized = child.replace("\\", "/")
-                    if normalized.casefold().startswith(old_prefix.casefold() + "/"):
+                    placeholder = PROJECT_PATH.fullmatch(normalized)
+                    if placeholder or normalized.startswith("./"):
+                        relative = Path((placeholder.group(1) or "") if placeholder else normalized[2:])
+                        if relative.anchor or ".." in relative.parts:
+                            raise BridgeError("工程内素材路径不能越过草稿目录。")
+                        item[key] = (new / relative).as_posix()
+                    elif normalized.casefold().startswith(old_prefix.casefold() + "/"):
                         item[key] = new.as_posix() + normalized[len(old_prefix):]
                     elif normalized.casefold() == old_prefix.casefold():
                         item[key] = new.as_posix()

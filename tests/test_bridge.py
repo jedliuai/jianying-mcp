@@ -82,10 +82,96 @@ def test_copy_preserves_unknown_tracks_materials_and_subtitle_text(fixture):
 
 def test_overlapping_effects_get_independent_tracks(fixture):
     bridge, source, _, audio = fixture
-    plan = bridge.prepare(source.name, "音效副本", [{"path": str(audio), "start_seconds": 2}, {"path": str(audio), "start_seconds": 2.2}])
+    plan = bridge.prepare(source.name, "音效副本", [{"path": str(audio), "start_seconds": 2}, {"path": str(audio), "start_seconds": 2.2}], track_mode="independent")
     result = bridge.build(plan["plan_id"])
     assert result["added_audio_tracks"] == 2
     assert bridge.verify(result["build_id"])["verified"]
+
+
+def test_nonoverlapping_effects_share_one_editable_track_by_default(fixture):
+    bridge, source, _, audio = fixture
+    plan = bridge.prepare(source.name, "单轨音效", [{"path": str(audio), "start_seconds": 2}, {"path": str(audio), "start_seconds": 5}])
+    result = bridge.build(plan["plan_id"])
+    edited, _ = bridge.read(Path(result["draft_path"]) / "draft_content.json")
+    assert result["added_audio_tracks"] == result["sound_effect_tracks"] == 1
+    assert result["added_sound_effects"] == 2
+    assert [s["target_timerange"]["start"] for s in edited["tracks"][-1]["segments"]] == [2_000_000, 5_000_000]
+
+
+def published_two_sound_tracks(fixture):
+    bridge, source, _, audio = fixture
+    first = bridge.build(bridge.prepare(source.name, "分轨音效", [
+        {"path": str(audio), "start_seconds": 2, "volume": .37, "fade_out_seconds": .2},
+        {"path": str(audio), "start_seconds": 5, "volume": .61, "fade_in_seconds": .1},
+    ], track_mode="independent")["plan_id"])
+    publication = bridge.publish(first["build_id"])
+    source = Path(publication["draft_path"])
+    content, _ = bridge.read(source / "draft_content.json")
+    content["tracks"][-1]["segments"][0]["future_native_envelope"] = [{"time": 1234, "value": .4}]
+    bridge.write(source / "draft_content.json", content, False)
+    (source / "draft_content.json.bak").write_bytes((source / "draft_content.json").read_bytes())
+    return source, content, [t["id"] for t in content["tracks"] if t["type"] == "audio"]
+
+
+def test_consolidation_preserves_existing_clip_mix_envelopes_and_other_tracks(fixture):
+    bridge, _, _, audio = fixture
+    source, original, ids = published_two_sound_tracks(fixture)
+    before = bridge.fingerprints(source)
+    effects = [{"path": str(audio), "start_seconds": 3.5}, {"path": str(audio), "start_seconds": 7}]
+    result = bridge.build(bridge.prepare(source.name, "合并并补充", effects, consolidate_track_ids=ids)["plan_id"])
+    publication = bridge.publish(result["build_id"])
+    target = Path(publication["draft_path"])
+    edited, _ = bridge.read(target / "draft_content.json")
+    assert edited["tracks"][:3] == original["tracks"][:3]
+    assert len(edited["tracks"]) == 4 and edited["tracks"][-1]["id"] == ids[0]
+    assert len(edited["tracks"][-1]["segments"]) == 4
+    assert result["added_sound_effects"] == 2 and result["sound_effect_tracks"] == 1
+    assert result["consolidated_audio_tracks"] == 2
+    assert result["original_tracks_preserved"] == 3 and result["original_audio_segments_preserved"] == 2
+    actual_segments = {s["id"]: s for s in edited["tracks"][-1]["segments"]}
+    for track in original["tracks"][-2:]:
+        for original_segment in track["segments"]:
+            expected = {**original_segment, "render_index": 3, "track_render_index": 3}
+            assert actual_segments[original_segment["id"]] == expected
+    for kind, materials in original["materials"].items():
+        assert edited["materials"][kind][:len(materials)] == remap_paths(materials, source, target)
+    assert bridge.fingerprints(source) == before
+    assert bridge.verify(result["build_id"])["verified"]
+
+
+def test_consolidation_without_adding_sounds(fixture):
+    bridge, _, _, _ = fixture
+    source, _, ids = published_two_sound_tracks(fixture)
+    result = bridge.build(bridge.prepare(source.name, "只合轨", [], consolidate_track_ids=ids)["plan_id"])
+    assert result["added_sound_effects"] == 0
+    assert result["sound_effect_tracks"] == 1 and result["consolidated_audio_tracks"] == 2
+    assert bridge.verify(result["build_id"])["verified"]
+
+
+def test_single_track_rejects_new_sound_overlapping_existing_clip(fixture):
+    bridge, _, _, audio = fixture
+    source, _, ids = published_two_sound_tracks(fixture)
+    before = bridge.fingerprints(source)
+    with pytest.raises(BridgeError, match="时间重叠"):
+        bridge.prepare(source.name, "有重叠", [{"path": str(audio), "start_seconds": 2.2}], consolidate_track_ids=ids)
+    assert bridge.fingerprints(source) == before
+
+
+def test_consolidation_rejects_different_track_mute_settings(fixture):
+    bridge, _, _, _ = fixture
+    source, content, ids = published_two_sound_tracks(fixture)
+    content["tracks"][-1]["flag"] = 1
+    bridge.write(source / "draft_content.json", content, False)
+    with pytest.raises(BridgeError, match="设置不同"):
+        bridge.prepare(source.name, "不能混合静音", [], consolidate_track_ids=ids)
+
+
+@pytest.mark.parametrize("ids,mode", [(["video"], "single"), (["missing"], "single"),
+                                     (["video", "video"], "single"), (["video"], "independent")])
+def test_consolidation_requires_explicit_valid_audio_tracks(fixture, ids, mode):
+    bridge, source, _, _ = fixture
+    with pytest.raises(BridgeError):
+        bridge.prepare(source.name, "非法合并", [], track_mode=mode, consolidate_track_ids=ids)
 
 
 @pytest.mark.parametrize("field,value", [

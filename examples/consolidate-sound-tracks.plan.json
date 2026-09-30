@@ -1,0 +1,10 @@
+{
+  "source_name": "已有音效的草稿名称",
+  "new_name": "原工程-单轨音效版",
+  "track_mode": "single",
+  "consolidate_track_ids": [
+    "替换为-inspect-返回的音频轨道-ID-1",
+    "替换为-inspect-返回的音频轨道-ID-2"
+  ],
+  "effects": []
+}

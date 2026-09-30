@@ -43,14 +43,14 @@ def find_jianying_cached_sound_effects(query: str = "", limit: int = 80) -> dict
 
 
 @mcp.tool()
-def prepare_sound_effects(source_name: str, new_name: str, effects: list[dict]) -> dict:
-    """准备音效计划。每项需 path、start_seconds，可设 source_start_seconds、duration_seconds、volume(0~2)、fade_in_seconds、fade_out_seconds、label。时间均以秒计，音效不能越过工程结尾。返回 plan_id 和摘要，不修改剪映草稿。"""
-    return Bridge().prepare(source_name, new_name, effects)
+def prepare_sound_effects(source_name: str, new_name: str, effects: list[dict], track_mode: str = "single", consolidate_track_ids: list[str] | None = None) -> dict:
+    """准备音效计划。每项需 path、start_seconds，可设 source_start_seconds、duration_seconds、volume(0~2)、fade_in_seconds、fade_out_seconds、label。默认 single：音效分为可编辑片段、合放一条轨道，重叠会报错；independent 每个音效一轨。consolidate_track_ids 可明确指定合并已有音频轨道，其时间、音量、淡入淡出保留；effects 可为空以只合并。时间均为秒，不能越过工程结尾。返回计划，不修改原草稿。"""
+    return Bridge().prepare(source_name, new_name, effects, track_mode, consolidate_track_ids)
 
 
 @mcp.tool()
 def build_sound_effects_copy(plan_id: str) -> dict:
-    """根据计划在工作目录生成完整工程副本，每个音效一条独立轨道；复制音效素材并验证原轨道不变。"""
+    """在工作目录生成完整工程副本，按计划合放或分放音效轨道；只合并明确指定的音频轨道，其片段设置保留，其他原轨道不变。"""
     return Bridge().build(plan_id)
 
 

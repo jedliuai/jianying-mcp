@@ -92,10 +92,70 @@ def remap_paths(value, old: Path, new: Path):
     return result
 
 
-def check_preserved(original, edited, source: Path, target: Path, *, legacy=False):
+def arrange_sound_tracks(original_tracks, additions, mode, consolidate_ids=()):
+    """Group clips without flattening audio or changing their timing/mix settings."""
+    if mode not in {"single", "independent"}:
+        raise BridgeError("track_mode 必须是 single 或 independent。")
+    tracks = copy.deepcopy(original_tracks)
+    additions = copy.deepcopy(additions)
+    if mode == "independent":
+        if consolidate_ids:
+            raise BridgeError("合并已有轨道时必须使用 single 模式。")
+        for index, track in enumerate(additions, len(tracks)):
+            for segment in track["segments"]:
+                segment["render_index"] = index
+        return tracks + additions
+    selected = [t for t in tracks if t.get("id") in consolidate_ids]
+    if len(selected) != len(consolidate_ids) or any(t.get("type") != "audio" for t in selected):
+        raise BridgeError("只能合并明确指定的已有音频轨道。")
+    if not selected and not additions:
+        return tracks
+    if selected:
+        properties = lambda t: {k: v for k, v in t.items() if k not in {"id", "name", "segments"}}
+        if any(properties(t) != properties(selected[0]) for t in selected[1:]):
+            raise BridgeError("待合并轨道的静音、锁定或其他轨道设置不同，请先统一设置。")
+    combined = copy.deepcopy((selected or additions)[0])
+    combined["name"] = "音效 · 综合"
+    segments = [s for t in selected + additions for s in t.get("segments", [])]
+    segments.sort(key=lambda s: s.get("target_timerange", {}).get("start", 0))
+    seen = set()
+    last_end = 0
+    for segment in segments:
+        timerange = segment.get("target_timerange", {})
+        start, length = timerange.get("start", 0), timerange.get("duration", 0)
+        if not isinstance(start, int) or not isinstance(length, int) or start < 0 or length <= 0:
+            raise BridgeError("待合并音效的时间范围不合法。")
+        if start < last_end:
+            raise BridgeError("单轨音效存在时间重叠，请调整时间或选择 independent 模式。")
+        if not segment.get("id") or segment["id"] in seen:
+            raise BridgeError("待合并音效的片段 ID 缺失或重复。")
+        seen.add(segment["id"])
+        last_end = start + length
+    combined["segments"] = segments
+    if selected:
+        first_id = selected[0]["id"]
+        tracks = [combined if t["id"] == first_id else t for t in tracks if t["id"] == first_id or t["id"] not in consolidate_ids]
+    else:
+        tracks.append(combined)
+    index = next(i for i, t in enumerate(tracks) if t["id"] == combined["id"])
+    for segment in combined["segments"]:
+        for field in ["render_index", "track_render_index"]:
+            if field in segment:
+                segment[field] = index
+    return tracks
+
+
+def check_preserved(original, edited, source: Path, target: Path, *, legacy=False, consolidate_ids=()):
     expected = remap_paths(original, source, target)
     original_tracks = expected.get("tracks", [])
-    if edited.get("tracks", [])[:len(original_tracks)] != original_tracks:
+    preserved_tracks = arrange_sound_tracks(original_tracks, [], "single", consolidate_ids) if consolidate_ids else original_tracks
+    actual_tracks = copy.deepcopy(edited.get("tracks", [])[:len(preserved_tracks)])
+    if consolidate_ids:
+        original_segments = {s["id"] for t in original_tracks if t["id"] in consolidate_ids for s in t.get("segments", [])}
+        for track in actual_tracks:
+            if track["id"] in consolidate_ids:
+                track["segments"] = [s for s in track.get("segments", []) if s["id"] in original_segments]
+    if actual_tracks != preserved_tracks:
         raise BridgeError("原有轨道发生变化，停止交付。")
     for kind, materials in expected.get("materials", {}).items():
         actual = edited.get("materials", {}).get(kind, [])
@@ -109,7 +169,8 @@ def check_preserved(original, edited, source: Path, target: Path, *, legacy=Fals
             continue
         if edited.get(key) != value:
             raise BridgeError(f"原有工程字段 {key} 发生变化，停止交付。")
-    return {"original_tracks_preserved": len(original_tracks),
+    return {"original_tracks_preserved": len(original_tracks) - len(consolidate_ids),
+            "original_audio_segments_preserved": sum(len(t.get("segments", [])) for t in original_tracks if t["id"] in consolidate_ids),
             "original_segments_preserved": sum(len(t.get("segments", [])) for t in original_tracks),
             "original_materials_preserved": sum(len(v) for v in expected.get("materials", {}).values() if isinstance(v, list))}
 
@@ -273,13 +334,18 @@ class Bridge:
                 cache = Path(match.group(1).strip().replace("\\\\", "\\"))
         return find_cached_sound_effects(cache, query, limit)
 
-    def prepare(self, source_name, new_name, effects):
+    def prepare(self, source_name, new_name, effects, track_mode="single", consolidate_track_ids=None):
         source = self.source(source_name)
         valid_name(new_name)
         if (self.draft_root / new_name).exists() or new_name.casefold() == source_name.casefold():
             raise BridgeError("副本名称已存在或与原草稿相同，请换一个新名称。")
-        if not isinstance(effects, list) or not 1 <= len(effects) <= 500:
-            raise BridgeError("effects 必须包含 1 到 500 个音效。")
+        consolidate_track_ids = [] if consolidate_track_ids is None else consolidate_track_ids
+        if (not isinstance(consolidate_track_ids, list) or len(consolidate_track_ids) > 500
+                or any(not isinstance(i, str) or not i for i in consolidate_track_ids)
+                or len(set(consolidate_track_ids)) != len(consolidate_track_ids)):
+            raise BridgeError("consolidate_track_ids 必须是不重复的轨道 ID 列表。")
+        if not isinstance(effects, list) or len(effects) > 500 or (not effects and not consolidate_track_ids):
+            raise BridgeError("需要新增音效或明确指定待合并轨道，新增音效最多 500 个。")
         fingerprints = self.fingerprints(source)
         timeline, project = self.layout(source)
         content, _ = self.read(timeline)
@@ -315,15 +381,24 @@ class Bridge:
             prepared.append({"path": str(path), "sha256": digest(path.read_bytes()), "start_us": start,
                              "source_start_us": source_start, "duration_us": length, "volume": volume,
                              "fade_in_us": fade_in, "fade_out_us": fade_out, "label": label})
+        preview_prefix = uuid.uuid4().hex
+        previews = [{"id": f"{preview_prefix}-track-{i}", "type": "audio", "segments": [
+            {"id": f"{preview_prefix}-segment-{i}", "target_timerange": {"start": e["start_us"], "duration": e["duration_us"]}}]}
+            for i, e in enumerate(prepared)]
+        preview_tracks = arrange_sound_tracks(content["tracks"], previews, track_mode, consolidate_track_ids)
         if self.fingerprints(source) != fingerprints:
             raise BridgeError("读取期间原工程发生变化，请保存剪映后重新准备。")
         plan_id = uuid.uuid4().hex
         plan = {"plan_id": plan_id, "source_name": source_name, "source_path": str(source), "new_name": new_name,
                 "source_fingerprints": fingerprints, "timeline_relative": timeline.relative_to(source).as_posix(),
-                "legacy": not bool(project), "duration_us": duration, "effects": prepared}
+                "legacy": not bool(project), "duration_us": duration, "effects": prepared,
+                "track_mode": track_mode, "consolidate_track_ids": consolidate_track_ids}
         save_json(self.work / "plans" / f"{plan_id}.json", plan)
         return {"plan_id": plan_id, "source_name": source_name, "new_name": new_name,
-                "original_duration_seconds": duration / 1e6, "new_audio_tracks": len(prepared),
+                "original_duration_seconds": duration / 1e6,
+                "new_audio_tracks": sum(t["id"] in {p["id"] for p in previews} for t in preview_tracks),
+                "added_sound_effects": len(prepared), "track_mode": track_mode,
+                "consolidated_audio_tracks": len(consolidate_track_ids),
                 "effects": [{"label": e["label"], "start_seconds": e["start_us"] / 1e6,
                              "duration_seconds": e["duration_us"] / 1e6, "volume": e["volume"]} for e in prepared]}
 
@@ -415,18 +490,20 @@ class Bridge:
                     additions.add_segment(segment, track_ref)
                     embedded_audio.append({"relative": audio_relative.as_posix(), "sha256": effect["sha256"]})
                 generated = json.loads(additions.dumps())
-                original_track_count = len(main["tracks"])
-                for i, track in enumerate(generated["tracks"], original_track_count):
-                    for segment in track["segments"]:
-                        segment["render_index"] = i
-                    main["tracks"].append(track)
+                original_track_ids = {t["id"] for t in main["tracks"]}
+                consolidate_ids = plan.get("consolidate_track_ids", [])
+                track_mode = plan.get("track_mode", "independent")
+                main["tracks"] = arrange_sound_tracks(main["tracks"], generated["tracks"], track_mode, consolidate_ids)
+                new_segment_ids = [s["id"] for t in generated["tracks"] for s in t["segments"]]
+                new_track_ids = [t["id"] for t in main["tracks"] if t["id"] not in original_track_ids]
+                sound_track_ids = [t["id"] for t in main["tracks"] if t["id"] in consolidate_ids or t["id"] in new_track_ids]
                 for kind, values in generated["materials"].items():
                     if values:
                         main["materials"].setdefault(kind, []).extend(values)
                 new_draft_id = str(uuid.uuid4()).upper()
                 if plan["legacy"]:
                     main["id"] = new_draft_id
-                preservation = check_preserved(original, main, source, target, legacy=plan["legacy"])
+                preservation = check_preserved(original, main, source, target, legacy=plan["legacy"], consolidate_ids=consolidate_ids)
                 aliases = {}
                 main_hash = plan["source_fingerprints"][relative]
                 for sibling in [target, (target / relative).parent]:
@@ -474,7 +551,9 @@ class Bridge:
                             "source_fingerprints": plan["source_fingerprints"], "timeline_relative": relative,
                             "legacy": plan["legacy"], "draft_id": new_draft_id, "files": files,
                             "aliases": aliases, "embedded_audio": embedded_audio,
-                            "new_track_ids": [t["id"] for t in generated["tracks"]], "preservation": preservation}
+                            "new_track_ids": new_track_ids, "preservation": preservation,
+                            "track_mode": track_mode, "consolidate_track_ids": consolidate_ids,
+                            "new_segment_ids": new_segment_ids, "sound_track_ids": sound_track_ids}
                 save_json(build_dir / "manifest.json", manifest)
                 result = self.verify(build_id)
                 if self.fingerprints(source) != plan["source_fingerprints"]:
@@ -511,7 +590,8 @@ class Bridge:
         relative = manifest["timeline_relative"]
         original, _ = self.read(directory / "baseline" / relative)
         edited, _ = self.read(physical / relative)
-        preservation = check_preserved(original, edited, Path(manifest["source_path"]), logical, legacy=manifest["legacy"])
+        consolidate_ids = manifest.get("consolidate_track_ids", [])
+        preservation = check_preserved(original, edited, Path(manifest["source_path"]), logical, legacy=manifest["legacy"], consolidate_ids=consolidate_ids)
         missing_media = []
         for kind in ["videos", "audios"]:
             for material in edited.get("materials", {}).get(kind, []):
@@ -527,9 +607,21 @@ class Bridge:
                     missing_media.append(value)
         if missing_media:
             raise BridgeError("本地音视频素材缺失，请先在剪映定位素材：" + "; ".join(missing_media[:10]))
-        extra = edited["tracks"][len(original["tracks"]):]
-        if [t.get("id") for t in extra] != manifest["new_track_ids"] or any(t.get("type") != "audio" or len(t.get("segments", [])) != 1 for t in extra):
+        original_ids = {t["id"] for t in original["tracks"]}
+        extra = [t for t in edited["tracks"] if t["id"] not in original_ids]
+        if [t.get("id") for t in extra] != manifest["new_track_ids"] or any(t.get("type") != "audio" for t in extra):
             raise BridgeError("新增音效轨道验证失败。")
+        sound_tracks = [t for t in edited["tracks"] if t["id"] in manifest.get("sound_track_ids", manifest["new_track_ids"])]
+        if manifest.get("track_mode", "independent") == "single":
+            if len(sound_tracks) != 1:
+                raise BridgeError("音效没有合并到一条轨道。")
+            arrange_sound_tracks([], sound_tracks, "single")
+        elif any(len(t.get("segments", [])) != 1 for t in extra):
+            raise BridgeError("独立音效轨道验证失败。")
+        if "new_segment_ids" in manifest:
+            all_segments = [s["id"] for t in edited["tracks"] for s in t.get("segments", [])]
+            if any(all_segments.count(i) != 1 for i in manifest["new_segment_ids"]):
+                raise BridgeError("新增音效片段丢失或重复。")
         for audio in manifest["embedded_audio"]:
             file = within(physical / audio["relative"], physical)
             if digest(file.read_bytes()) != audio["sha256"]:
@@ -539,6 +631,8 @@ class Bridge:
                 raise BridgeError("主时间线的镜像文件不同步。")
         return {"build_id": build_id, "name": manifest["name"], "verified": True,
                 **preservation, "added_audio_tracks": len(extra),
+                "added_sound_effects": len(manifest.get("new_segment_ids", manifest["new_track_ids"])),
+                "sound_effect_tracks": len(sound_tracks), "consolidated_audio_tracks": len(consolidate_ids),
                 "original_duration_seconds": edited["duration"] / 1e6,
                 "note": "已验证工程结构、音效文件和加密读写；剪映打开、播放、保存后的验收仍需进行。"}
 

@@ -1,6 +1,7 @@
 {
   "source_name": "替换为剪映草稿文件夹名称",
   "new_name": "原工程-音效版",
+  "track_mode": "single",
   "effects": [
     {
       "path": "D:\\音效\\click.wav",

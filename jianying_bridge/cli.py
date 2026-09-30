@@ -26,7 +26,7 @@ def main():
     cached.add_argument("--query", default="")
     cached.add_argument("--limit", type=int, default=80)
     prepare = commands.add_parser("prepare")
-    prepare.add_argument("plan_file", help="JSON: source_name, new_name, effects")
+    prepare.add_argument("plan_file", help="JSON: source_name, new_name, effects；可设 track_mode、consolidate_track_ids")
     for name in ["build", "verify", "publish"]:
         command = commands.add_parser(name)
         command.add_argument("id", help="build 用 plan_id；verify/publish 用 build_id")
@@ -51,7 +51,8 @@ def main():
         elif args.command == "prepare":
             with open(args.plan_file, encoding="utf-8-sig") as file:
                 plan = json.load(file)
-            result = bridge.prepare(plan["source_name"], plan["new_name"], plan["effects"])
+            result = bridge.prepare(plan["source_name"], plan["new_name"], plan["effects"],
+                                    plan.get("track_mode", "single"), plan.get("consolidate_track_ids"))
         else:
             result = getattr(bridge, args.command)(args.id)
         print(json_text(result))

@@ -1,3 +1,5 @@
+> **Chatgpt代充：[aishopvip.com](https://aishopvip.com)**
+
 # jianying-mcp
 
 Windows 剪映专业版的本地 **MCP + CLI** 接入：读取已有工程，复制工程，追加可编辑音效轨道，再登记到剪映首页。保留原轨道、字幕、关键帧、画布配置和未知原生字段。
